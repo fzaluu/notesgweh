@@ -17,9 +17,27 @@ export default function LoginPage() {
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      
+      if (error) {
+        // Catat log saat login gagal via RPC
+        await supabase.rpc('insert_activity_log', {
+          p_activity: 'Login gagal',
+          p_email: email,
+          p_status: 'failed',
+          p_user_id: null
+        });
+        throw error;
+      }
 
       if (data.session) {
+        // Catat log saat login berhasil via RPC
+        await supabase.rpc('insert_activity_log', {
+          p_activity: 'Login berhasil',
+          p_email: email,
+          p_status: 'success',
+          p_user_id: data.session.user.id
+        });
+        
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
@@ -170,13 +188,11 @@ export default function LoginPage() {
                 title={showPassword ? "Sembunyikan Password" : "Tampilkan Password"}
               >
                 {showPassword ? (
-                  /* Ikon Mata Terbuka (Show) */
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                     <circle cx="12" cy="12" r="3"></circle>
                   </svg>
                 ) : (
-                  /* Ikon Mata Tertutup/Dicoret (Hide) */
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
                     <line x1="1" y1="1" x2="23" y2="23"></line>

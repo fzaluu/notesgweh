@@ -13,10 +13,9 @@ interface AdminStats {
 
 interface ActivityLogItem {
   id: string;
-  user_email?: string;
-  user_name?: string;
+  email?: string;
   activity: string;
-  status: 'success' | 'failed' | 'warning';
+  status: 'success' | 'failed';
   created_at: string;
 }
 
@@ -56,21 +55,18 @@ export default function AdminDashboard() {
       let failedCount = 0;
       let logsData: ActivityLogItem[] = [];
 
-      const { data: logs, error: logsError } = await supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Mengambil data log menggunakan RPC get_activity_logs agar konsisten dan aman dari RLS 403
+      const { data: logs, error: logsError } = await supabase.rpc('get_activity_logs');
 
       if (!logsError && logs) {
-        successCount = logs.filter((l) => l.status === 'success' || l.status === 'login_success').length;
-        failedCount = logs.filter((l) => l.status === 'failed' || l.status === 'login_failed').length;
+        successCount = logs.filter((l: any) => l.status?.toLowerCase() === 'success').length;
+        failedCount = logs.filter((l: any) => l.status?.toLowerCase() === 'failed').length;
         
-        logsData = logs.slice(0, 5).map((l) => ({
+        logsData = logs.slice(0, 5).map((l: any) => ({
           id: l.id,
-          user_email: l.user_email || l.email || 'Pengguna Sistem',
-          user_name: l.user_name || l.name || 'User',
-          activity: l.activity || l.action || 'Aktivitas sistem',
-          status: (l.status?.includes('fail') ? 'failed' : 'success') as 'success' | 'failed',
+          email: l.email || 'Sistem / Anonim',
+          activity: l.activity || 'Aktivitas sistem',
+          status: (l.status?.toLowerCase() === 'failed' ? 'failed' : 'success') as 'success' | 'failed',
           created_at: l.created_at,
         }));
       }
@@ -86,7 +82,7 @@ export default function AdminDashboard() {
       setRecentActivities(logsData);
     } catch (err: any) {
       console.error('Gagal memuat data dashboard admin:', err);
-      setErrorMsg('Gagal memuat data dari server. Pastikan tabel database terkait sudah siap.');
+      setErrorMsg('Gagal memuat data dari server. Pastikan sesi admin aktif.');
     } finally {
       setLoading(false);
     }
@@ -212,7 +208,7 @@ export default function AdminDashboard() {
                 {loading ? '...' : stats.totalUsers}
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
-                Jumlah seluruh akun user terdaftar
+                Jumlah seluruh akun terdaftar
               </span>
             </div>
 
@@ -234,7 +230,7 @@ export default function AdminDashboard() {
                 {loading ? '...' : stats.activeUsers}
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
-                Jumlah user dengan status aktif
+                Jumlah akun aktif dalam sistem
               </span>
             </div>
 
@@ -256,7 +252,7 @@ export default function AdminDashboard() {
                 {loading ? '...' : stats.totalAdmins}
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
-                Jumlah akun dengan role admin
+                Jumlah akun berhak akses admin
               </span>
             </div>
           </div>
@@ -313,7 +309,7 @@ export default function AdminDashboard() {
                 {loading ? '...' : stats.loginFailed}
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9 }}>
-                Percobaan login gagal
+                Akumulasi percobaan login gagal
               </span>
             </div>
           </div>
@@ -335,7 +331,7 @@ export default function AdminDashboard() {
               Aktivitas Terbaru
             </h2>
             <button
-              onClick={() => navigate('/admin/activity-log')}
+              onClick={() => navigate('/admin/logs')}
               style={{
                 background: 'none',
                 border: 'none',
@@ -371,8 +367,7 @@ export default function AdminDashboard() {
                   gap: '8px',
                 }}>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 900 }}>{log.user_name}</div>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#555' }}>{log.user_email}</div>
+                    <div style={{ fontSize: '13px', fontWeight: 900 }}>{log.email || 'Sistem'}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span style={{
@@ -436,7 +431,7 @@ export default function AdminDashboard() {
             </button>
 
             <button
-              onClick={() => navigate('/admin/activity-log')}
+              onClick={() => navigate('/admin/logs')}
               style={{
                 padding: '16px 20px',
                 backgroundColor: '#FE90E8',
@@ -458,31 +453,11 @@ export default function AdminDashboard() {
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                   <polyline points="14 2 14 8 20 8"></polyline>
                 </svg>
-                <span>Activity Log</span>
+                <span>Log Aktivitas</span>
               </div>
               <span>→</span>
             </button>
           </div>
-        </div>
-
-        {/* 7. INFORMASI KEAMANAN & RLS */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          border: '2px solid #000',
-          borderRadius: '12px',
-          padding: '16px',
-          fontSize: '11px',
-          fontWeight: 700,
-          color: '#555',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-        }}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-          </svg>
-          <span>Keamanan sistem dilindungi menggunakan Supabase RLS (Row Level Security) dan otorisasi role database.</span>
         </div>
 
       </div>

@@ -17,18 +17,16 @@ export default function UsersPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // State Modal Create (Nama, Email, Password, Role)
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // State Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 2;
+
+  // State Form (Create / Edit)
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
-
-  // State Modal Edit
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editRole, setEditRole] = useState('user');
 
   // State Modal Delete
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -59,77 +57,84 @@ export default function UsersPage() {
     }
   };
 
-  // CREATE User Handler via Edge Function (Aman, Tanpa signUp, Sesi Admin Tetap Aktif)
-  const handleCreateUser = async (e: React.FormEvent) => {
+  // CREATE / UPDATE User Handler
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newEmail || !newPassword) return;
 
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
 
-      // Ambil session aktif secara manual untuk memastikan token terkirim
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        alert('Sesi Anda telah habis. Silakan login kembali.');
-        return;
+      if (editingId) {
+        // Mode Edit (Update ke tabel profiles)
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            name: newName,
+            role: newRole,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingId);
+
+        if (error) throw error;
+        setSuccessMsg('Data pengguna berhasil diperbarui.');
+      } else {
+        // Mode Tambah Baru via Edge Function
+        if (!newEmail || !newPassword) return;
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          alert('Sesi Anda telah habis. Silakan login kembali.');
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('create-user', {
+          body: {
+            name: newName,
+            email: newEmail,
+            password: newPassword,
+            role: newRole,
+          },
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (error) throw error;
+        if (data && data.error) {
+          throw new Error(data.message || 'Gagal membuat pengguna.');
+        }
+
+        setSuccessMsg('Pengguna berhasil dibuat.');
       }
 
-      const { data, error } = await supabase.functions.invoke('create-user', {
-        body: {
-          name: newName,
-          email: newEmail,
-          password: newPassword,
-          role: newRole,
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (error) throw error;
-      if (data && data.error) {
-        throw new Error(data.message || 'Gagal membuat pengguna.');
-      }
-
-      setSuccessMsg('Pengguna berhasil dibuat.');
-      setIsCreateOpen(false);
-      setNewName('');
-      setNewEmail('');
-      setNewPassword('');
-      setNewRole('user');
+      // Reset Form & Refresh
+      handleCancelEdit();
       fetchUsers();
     } catch (err: any) {
-      alert(err.message || 'Terjadi kesalahan saat membuat pengguna.');
+      alert(err.message || 'Terjadi kesalahan.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // UPDATE User Handler
-  const handleUpdateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUser) return;
+  // Handle Edit Trigger
+  const handleEditClick = (user: UserProfile) => {
+    setEditingId(user.id);
+    setNewName(user.name || '');
+    setNewRole(user.role || 'user');
+    setNewEmail('');
+    setNewPassword('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          name: editName,
-          role: editRole,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedUser.id);
-
-      if (error) throw error;
-
-      setSuccessMsg('Data pengguna berhasil diperbarui.');
-      setIsEditOpen(false);
-      setSelectedUser(null);
-      fetchUsers();
-    } catch (err: any) {
-      alert('Gagal memperbarui pengguna: ' + (err.message || 'Terjadi kesalahan'));
-    }
+  // Batal Edit / Reset Form
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setNewName('');
+    setNewEmail('');
+    setNewPassword('');
+    setNewRole('user');
   };
 
   // DELETE User Handler
@@ -157,6 +162,12 @@ export default function UsersPage() {
   const filteredUsers = users.filter((u) => 
     u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Perhitungan Pagination
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentUsers = filteredUsers.slice(indexOfFirstItem, indexOfLastItem);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '-';
@@ -207,50 +218,6 @@ export default function UsersPage() {
               Kelola Pengguna
             </h1>
           </div>
-
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Cari nama pengguna..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                padding: '10px 14px',
-                backgroundColor: '#F4F3EC',
-                border: '3px solid #000',
-                borderRadius: '10px',
-                fontWeight: 700,
-                fontSize: '13px',
-                outline: 'none',
-                width: '240px',
-                boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)',
-              }}
-            />
-
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              style={{
-                padding: '10px 18px',
-                backgroundColor: '#99E885',
-                border: '3px solid #000',
-                borderRadius: '10px',
-                fontWeight: 900,
-                fontSize: '13px',
-                textTransform: 'uppercase',
-                cursor: 'pointer',
-                boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              Tambah Pengguna
-            </button>
-          </div>
         </div>
 
         {/* FEEDBACK NOTIFICATION */}
@@ -287,65 +254,284 @@ export default function UsersPage() {
           </div>
         )}
 
-        {/* TABEL PENGGUNA */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          border: '4px solid #000',
-          borderRadius: '16px',
-          padding: '24px',
-          boxShadow: '6px 6px 0px 0px rgba(0,0,0,1)',
-          overflowX: 'auto',
-        }}>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '24px', fontWeight: 900 }}>Memuat data pengguna...</div>
-          ) : filteredUsers.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '24px', fontWeight: 700, color: '#666' }}>
-              Belum ada pengguna.
+        {/* CSS SKELETON PULSE ANIMATION */}
+        <style>{`
+          @keyframes pulseSkeleton {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+          }
+        `}</style>
+
+        {/* LAYOUT UTAMA: KIRI (FORM), KANAN (LIST USER) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+          
+          {/* KOLOM KIRI: FORM TAMBAH / EDIT PENGGUNA */}
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            border: '4px solid #000',
+            borderRadius: '20px',
+            padding: '24px',
+            boxShadow: '6px 6px 0px 0px rgba(0,0,0,1)',
+            height: 'fit-content',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>
+                {editingId ? 'Edit Pengguna' : 'Tambah Pengguna Baru'}
+              </h3>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  style={{
+                    backgroundColor: '#E0E0E0',
+                    border: '2px solid #000',
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Batal
+                </button>
+              )}
             </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '3px solid #000' }}>
-                  <th style={{ padding: '12px', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase' }}>Nama</th>
-                  <th style={{ padding: '12px', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase' }}>Role</th>
-                  <th style={{ padding: '12px', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase' }}>Dibuat</th>
-                  <th style={{ padding: '12px', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', textAlign: 'right' }}>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} style={{ borderBottom: '2px solid #eee' }}>
-                    <td style={{ padding: '14px 12px', fontSize: '13px', fontWeight: 900 }}>
-                      {user.name || 'Tanpa Nama'}
-                    </td>
-                    <td style={{ padding: '14px 12px' }}>
-                      <span style={{
-                        display: 'inline-block',
-                        backgroundColor: user.role === 'admin' ? '#FFDE59' : '#E0E0E0',
-                        border: '2px solid #000',
-                        borderRadius: '6px',
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        fontWeight: 900,
-                        textTransform: 'uppercase',
-                      }}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td style={{ padding: '14px 12px', fontSize: '12px', fontWeight: 700, color: '#666' }}>
-                      {formatDate(user.created_at)}
-                    </td>
-                    <td style={{ padding: '14px 12px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Nama</label>
+                <input
+                  type="text"
+                  placeholder="Nama lengkap"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '10px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {!editingId && (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Email</label>
+                    <input
+                      type="email"
+                      placeholder="email@domain.com"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      required
+                      style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '10px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Password</label>
+                    <input
+                      type="password"
+                      placeholder="Minimal 6 karakter"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '10px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Pilihan Role Bergeser Menjadi Gaya Tombol (Seperti di Finance) */}
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Role</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setNewRole('user')}
+                    style={{
+                      padding: '10px',
+                      backgroundColor: newRole === 'user' ? '#99E885' : '#F4F3EC',
+                      border: '3px solid #000',
+                      borderRadius: '10px',
+                      fontWeight: 900,
+                      fontSize: '12px',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                      boxShadow: newRole === 'user' ? '2px 2px 0px 0px rgba(0,0,0,1)' : 'none',
+                      transform: newRole === 'user' ? 'translate(-2px, -2px)' : 'none',
+                      transition: 'all 0.1s ease',
+                    }}
+                  >
+                    User
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewRole('admin')}
+                    style={{
+                      padding: '10px',
+                      backgroundColor: newRole === 'admin' ? '#FFDE59' : '#F4F3EC',
+                      border: '3px solid #000',
+                      borderRadius: '10px',
+                      fontWeight: 900,
+                      fontSize: '12px',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                      boxShadow: newRole === 'admin' ? '2px 2px 0px 0px rgba(0,0,0,1)' : 'none',
+                      transform: newRole === 'admin' ? 'translate(-2px, -2px)' : 'none',
+                      transition: 'all 0.1s ease',
+                    }}
+                  >
+                    Admin
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  marginTop: '6px',
+                  width: '100%',
+                  padding: '12px',
+                  backgroundColor: editingId ? '#00F0FF' : '#99E885',
+                  border: '3px solid #000',
+                  borderRadius: '12px',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  boxShadow: '4px 4px 0px 0px rgba(0,0,0,1)',
+                }}
+              >
+                {isSubmitting ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Pengguna'}
+              </button>
+            </form>
+          </div>
+
+          {/* KOLOM KANAN: DAFTAR LIST USER, PENCARIAN, SKELETON & PAGINATION */}
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            border: '4px solid #000',
+            borderRadius: '20px',
+            padding: '24px',
+            boxShadow: '6px 6px 0px 0px rgba(0,0,0,1)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', margin: 0 }}>
+                  Daftar Pengguna Sistem
+                </h3>
+              </div>
+
+              {/* Input Search */}
+              <div style={{ marginBottom: '16px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <span style={{ position: 'absolute', left: '12px', display: 'flex', alignItems: 'center', pointerEvents: 'none', color: '#555' }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                </span>
+                <input
+                  type="text"
+                  placeholder="Cari nama pengguna..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 38px',
+                    backgroundColor: '#F4F3EC',
+                    border: '3px solid #000',
+                    borderRadius: '10px',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+
+              {loading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {[1, 2, 3].map((item) => (
+                    <div
+                      key={item}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '14px 16px',
+                        backgroundColor: '#EAE8DF',
+                        border: '3px solid #000',
+                        borderRadius: '12px',
+                        boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)',
+                        gap: '10px',
+                        animation: 'pulseSkeleton 1.2s infinite ease-in-out',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ width: '70px', height: '16px', backgroundColor: '#D5D2C4', borderRadius: '4px', border: '1px solid #000' }}></div>
+                        <div style={{ width: '80px', height: '12px', backgroundColor: '#D5D2C4', borderRadius: '4px' }}></div>
+                      </div>
+                      <div style={{ width: '50%', height: '18px', backgroundColor: '#D5D2C4', borderRadius: '6px' }}></div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '2px dashed rgba(0,0,0,0.2)', paddingTop: '8px', marginTop: '2px' }}>
+                        <div style={{ width: '60px', height: '28px', backgroundColor: '#D5D2C4', borderRadius: '6px', border: '2px solid #000' }}></div>
+                        <div style={{ width: '60px', height: '28px', backgroundColor: '#D5D2C4', borderRadius: '6px', border: '2px solid #000' }}></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : currentUsers.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', backgroundColor: '#F4F3EC', border: '2px dashed #000', borderRadius: '10px' }}>
+                  <p style={{ fontWeight: 700, fontSize: '13px', margin: 0, color: '#666' }}>
+                    {users.length === 0 ? 'Belum ada pengguna terdaftar.' : 'Tidak ditemukan pengguna yang cocok.'}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {currentUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: '14px 16px',
+                        backgroundColor: '#F4F3EC',
+                        border: '3px solid #000',
+                        borderRadius: '12px',
+                        boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)',
+                        gap: '10px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{
+                          backgroundColor: user.role === 'admin' ? '#FFDE59' : '#E0E0E0',
+                          border: '2px solid #000',
+                          borderRadius: '6px',
+                          padding: '2px 8px',
+                          fontSize: '10px',
+                          fontWeight: 900,
+                          textTransform: 'uppercase',
+                        }}>
+                          {user.role}
+                        </span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>
+                          Dibuat: {formatDate(user.created_at)}
+                        </span>
+                      </div>
+
+                      <h4 style={{ fontSize: '15px', fontWeight: 900, margin: 0, wordBreak: 'break-word' }}>
+                        {user.name || 'Tanpa Nama'}
+                      </h4>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '2px dashed rgba(0,0,0,0.2)', paddingTop: '8px', marginTop: '2px' }}>
                         <button
-                          onClick={() => {
-                            setSelectedUser(user);
-                            setEditName(user.name || '');
-                            setEditRole(user.role || 'user');
-                            setIsEditOpen(true);
-                          }}
+                          onClick={() => handleEditClick(user)}
                           style={{
-                            padding: '6px 12px',
+                            padding: '6px 14px',
                             backgroundColor: '#FFDE59',
                             border: '2px solid #000',
                             borderRadius: '6px',
@@ -363,7 +549,7 @@ export default function UsersPage() {
                             setIsDeleteOpen(true);
                           }}
                           style={{
-                            padding: '6px 12px',
+                            padding: '6px 14px',
                             backgroundColor: '#FF5757',
                             color: '#FFF',
                             border: '2px solid #000',
@@ -377,89 +563,57 @@ export default function UsersPage() {
                           Hapus
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* PAGINATION CONTROLS */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid #000', paddingTop: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: currentPage === 1 ? '#E0E0E0' : '#FFDE59',
+                    border: '2px solid #000',
+                    borderRadius: '6px',
+                    fontWeight: 900,
+                    fontSize: '11px',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    boxShadow: currentPage === 1 ? 'none' : '2px 2px 0px 0px rgba(0,0,0,1)',
+                  }}
+                >
+                  Sebelumnya
+                </button>
+
+                <span style={{ fontSize: '12px', fontWeight: 900 }}>
+                  Hal {currentPage} / {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: currentPage === totalPages ? '#E0E0E0' : '#FFDE59',
+                    border: '2px solid #000',
+                    borderRadius: '6px',
+                    fontWeight: 900,
+                    fontSize: '11px',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    boxShadow: currentPage === totalPages ? 'none' : '2px 2px 0px 0px rgba(0,0,0,1)',
+                  }}
+                >
+                  Berikutnya
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
-
-        {/* MODAL CREATE USER */}
-        {isCreateOpen && (
-          <div style={{
-            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backdropFilter: 'blur(2px)'
-          }}>
-            <div style={{
-              backgroundColor: '#FFFFFF', border: '4px solid #000', borderRadius: '20px',
-              padding: '24px', boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)', width: '100%', maxWidth: '400px'
-            }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', margin: '0 0 16px 0' }}>
-                Tambah Pengguna Baru
-              </h3>
-              <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Nama</label>
-                  <input type="text" placeholder="Nama lengkap" value={newName} onChange={(e) => setNewName(e.target.value)} required style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Email</label>
-                  <input type="email" placeholder="email@domain.com" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Password</label>
-                  <input type="password" placeholder="Minimal 6 karakter" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Role</label>
-                  <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 900, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px' }}>
-                  <button type="button" onClick={() => setIsCreateOpen(false)} style={{ padding: '10px', backgroundColor: '#E0E0E0', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>Batal</button>
-                  <button type="submit" disabled={isSubmitting} style={{ padding: '10px', backgroundColor: '#99E885', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>{isSubmitting ? 'Membuat...' : 'Simpan'}</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL EDIT USER */}
-        {isEditOpen && selectedUser && (
-          <div style={{
-            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backdropFilter: 'blur(2px)'
-          }}>
-            <div style={{
-              backgroundColor: '#FFFFFF', border: '4px solid #000', borderRadius: '20px',
-              padding: '24px', boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)', width: '100%', maxWidth: '400px'
-            }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 900, textTransform: 'uppercase', margin: '0 0 16px 0' }}>
-                Edit Pengguna
-              </h3>
-              <form onSubmit={handleUpdateUser} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Nama</label>
-                  <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} required style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 700, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Role</label>
-                  <select value={editRole} onChange={(e) => setEditRole(e.target.value)} style={{ width: '100%', padding: '10px', backgroundColor: '#F4F3EC', border: '3px solid #000', borderRadius: '8px', fontWeight: 900, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px' }}>
-                  <button type="button" onClick={() => setIsEditOpen(false)} style={{ padding: '10px', backgroundColor: '#E0E0E0', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>Batal</button>
-                  <button type="submit" style={{ padding: '10px', backgroundColor: '#FFDE59', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>Perbarui</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
 
         {/* MODAL DELETE CONFIRMATION */}
         {isDeleteOpen && userToDelete && (
