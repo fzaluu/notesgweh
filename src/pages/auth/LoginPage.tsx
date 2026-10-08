@@ -59,7 +59,7 @@ export default function LoginPage() {
     }
   };
 
-  // Fungsi Pendaftaran Akun Mandiri (Otomatis role: user & langsung logout agar kembali ke form masuk)
+  // Fungsi Pendaftaran Akun Mandiri (Otomatis role: user)
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -88,10 +88,7 @@ export default function LoginPage() {
 
         if (profileError) throw profileError;
 
-        // 🔥 Langsung logout agar sesi otomatis terhapus dan user harus login manual
-        await supabase.auth.signOut();
-
-        setSuccessMessage('Pendaftaran berhasil! Silakan masuk menggunakan akun yang baru dibuat.');
+        setSuccessMessage('Pendaftaran berhasil! Silakan cek email untuk verifikasi atau langsung masuk.');
         setIsRegisterMode(false);
         setPassword('');
       }
@@ -305,7 +302,6 @@ export default function LoginPage() {
         <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', gap: '10px' }}>
           <div style={{ flex: 1, height: '2px', backgroundColor: '#000' }}></div>
           <span style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', color: '#666' }}>Atau</span>
-          
           <div style={{ flex: 1, height: '2px', backgroundColor: '#000' }}></div>
         </div>
 
