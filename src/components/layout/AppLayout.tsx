@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../app/providers/AuthProvider'; // <-- Sesuaikan path import
+import { useNavigate, useLocation } from 'react-router-dom'; // 👈 Tambahkan useLocation
+import { useAuth } from '../../app/providers/AuthProvider';
 import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 
@@ -20,6 +20,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation(); // 👈 Inisialisasi location untuk mendeteksi perubahan rute
 
   useEffect(() => {
     const handleResize = () => {
@@ -57,22 +58,41 @@ export default function AppLayout({ children }: AppLayoutProps) {
           div::-webkit-scrollbar { width: 8px; }
           div::-webkit-scrollbar-track { background: #F4F3EC; }
           div::-webkit-scrollbar-thumb { background: #000; border-radius: 4px; }
+
+          @keyframes smoothFade {
+            0% {
+              opacity: 0;
+              transform: translateY(8px);
+            }
+            100% {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          .page-transition {
+            animation: smoothFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
         `}</style>
 
         {/* Sidebar Desktop */}
         {!isMobile && <Sidebar onLogoutClick={() => setLogoutModalOpen(true)} />}
 
-        {/* Konten Utama */}
-        <div style={{
-          flex: 1,
-          height: '100vh',
-          overflowY: 'auto',
-          padding: isMobile ? '80px 20px 120px 20px' : '32px 40px',
-          boxSizing: 'border-box',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '24px',
-        }}>
+        {/* Konten Utama dengan key={location.pathname} agar animasi selalu ter-trigger rapi */}
+        <div 
+          key={location.pathname}
+          className="page-transition" 
+          style={{
+            flex: 1,
+            height: '100vh',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            padding: isMobile ? '80px 20px 120px 20px' : '32px 40px',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '24px',
+          }}
+        >
           {children}
         </div>
 
