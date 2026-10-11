@@ -272,13 +272,10 @@ export default function PencilLoader() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ position: 'relative', width: '160px', height: '160px' }} role="status" aria-label="Memuat">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+      <div style={{ position: 'relative', width: '150px', height: '150px' }} role="status" aria-label="Memuat">
         <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
       </div>
-      <span style={{ fontSize: '13px', fontWeight: 900, textTransform: 'uppercase', marginTop: '10px', letterSpacing: '1px' }}>
-        Memuat Data...
-      </span>
     </div>
   );
 }

@@ -87,7 +87,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
   };
 
-  // 👇 2. Tampilkan animasi pensil loading penuh saat aplikasi pertama kali mengecek sesi
   if (loading) {
     return (
       <div style={{
@@ -96,21 +95,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         width: '100vw',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#F4F3EC',
+        backgroundColor: 'rgba(0, 0, 0, 0)', // Latar belakang transparan total
+        backdropFilter: 'blur(6px)', // Efek blur kaca di belakang animasi pensil
         position: 'fixed',
         top: 0,
         left: 0,
         zIndex: 9999,
       }}>
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          border: '4px solid #000000',
-          borderRadius: '16px',
-          padding: '32px',
-          boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)',
-        }}>
-          <PencilLoader />
-        </div>
+        <PencilLoader />
       </div>
     );
   }

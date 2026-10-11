@@ -116,21 +116,24 @@ export default function LoginPage() {
   };
 
   if (loading) {
-      return (
-        <div style={{
-          display: 'flex', minHeight: '100vh', width: '100vw',
-          alignItems: 'center', justifyContent: 'center',
-          backgroundColor: '#F4F3EC', position: 'fixed', top: 0, left: 0, zIndex: 9999,
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF', border: '4px solid #000000',
-            borderRadius: '16px', padding: '32px', boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)',
-          }}>
-            <PencilLoader />
-          </div>
-        </div>
-      );
-    }
+    return (
+      <div style={{
+        display: 'flex',
+        minHeight: '100vh',
+        width: '100vw',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(244, 243, 236, 0.7)', // Warna latar transparan
+        backdropFilter: 'blur(8px)', // Efek blur di latar belakang
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999,
+      }}>
+        <PencilLoader />
+      </div>
+    );
+  }
 
   return (
     <div style={{
