@@ -1,32 +1,65 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../app/providers/AuthProvider';
 import AdminSidebar from './AdminSidebar';
-import AdminBottomNav from './AdminBottomNav'; // <-- Import Bottom Nav Admin
+import AdminBottomNav from './AdminBottomNav';
+import PencilLoader from '../../../components/ui/PencilLoader'; // 👈 Impor komponen loader pensil
 
 interface AdminLayoutProps {
   children: React.ReactNode;
 }
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // 👈 State untuk animasi loading saat logout
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const handleConfirmLogout = async () => {
-    await signOut();
-    navigate('/login', { replace: true });
+    setLogoutModalOpen(false); // Tutup modal konfirmasi
+    setIsLoggingOut(true);     // Tampilkan animasi pensil loading penuh
+
+    try {
+      // Beri jeda sebentar agar animasi tampil mulus sebelum sesi admin dihapus
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await signOut();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      console.error('Admin logout error:', error);
+      setIsLoggingOut(false);
+    }
   };
+
+  // 👇 Tampilkan layar transparan blur dengan animasi pensil saat proses logout admin berjalan
+  if (isLoggingOut) {
+    return (
+      <div style={{
+        display: 'flex',
+        minHeight: '100vh',
+        width: '100vw',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0)',
+        backdropFilter: 'blur(6px)',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999,
+      }}>
+        <PencilLoader />
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -44,20 +77,46 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       overflow: 'hidden',
       display: 'flex',
     }}>
+      
+      <style>{`
+        div::-webkit-scrollbar { width: 8px; }
+        div::-webkit-scrollbar-track { background: #F4F3EC; }
+        div::-webkit-scrollbar-thumb { background: #000; border-radius: 4px; }
+
+        @keyframes smoothFade {
+          0% {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .page-transition {
+          animation: smoothFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+      `}</style>
+
       {/* Sidebar Desktop Admin */}
       {!isMobile && <AdminSidebar onLogoutClick={() => setLogoutModalOpen(true)} />}
 
-      {/* Konten Utama Admin */}
-      <div style={{
-        flex: 1,
-        height: '100vh',
-        overflowY: 'auto',
-        padding: isMobile ? '20px 20px 100px 20px' : '32px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '24px',
-      }}>
+      {/* Konten Utama Admin dengan key={location.pathname} */}
+      <div 
+        key={location.pathname}
+        className="page-transition"
+        style={{
+          flex: 1,
+          height: '100vh',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: isMobile ? '20px 20px 100px 20px' : '32px 40px',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px',
+        }}
+      >
         {children}
       </div>
 

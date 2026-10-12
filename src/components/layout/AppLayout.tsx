@@ -1,8 +1,9 @@
 import { useState, useEffect, createContext, useContext } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom'; // 👈 Tambahkan useLocation
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../app/providers/AuthProvider';
 import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
+import PencilLoader from '../../components/ui/PencilLoader'; // 👈 Impor komponen loader pensil
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -16,25 +17,56 @@ const LayoutContext = createContext<LayoutContextType>({ openLogoutModal: () => 
 export const useLayout = () => useContext(LayoutContext);
 
 export default function AppLayout({ children }: AppLayoutProps) {
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // 👈 State untuk animasi loading saat logout
   const { signOut } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation(); // 👈 Inisialisasi location untuk mendeteksi perubahan rute
+  const location = useLocation();
 
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const handleConfirmLogout = async () => {
-    await signOut();
-    navigate('/login', { replace: true });
+    setLogoutModalOpen(false); // Tutup modal konfirmasi
+    setIsLoggingOut(true);     // Tampilkan animasi pensil loading penuh
+
+    try {
+      // Beri jeda sejenak agar animasi pensil sempat tampil mulus sebelum sesi dihapus
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await signOut();
+      navigate('/login', { replace: true });
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+    }
   };
+
+  // 👇 Tampilkan layar transparan blur dengan animasi pensil saat proses logout berjalan
+  if (isLoggingOut) {
+    return (
+      <div style={{
+        display: 'flex',
+        minHeight: '100vh',
+        width: '100vw',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0)',
+        backdropFilter: 'blur(6px)',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999,
+      }}>
+        <PencilLoader />
+      </div>
+    );
+  }
 
   return (
     <LayoutContext.Provider value={{ openLogoutModal: () => setLogoutModalOpen(true) }}>
@@ -77,7 +109,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {/* Sidebar Desktop */}
         {!isMobile && <Sidebar onLogoutClick={() => setLogoutModalOpen(true)} />}
 
-        {/* Konten Utama dengan key={location.pathname} agar animasi selalu ter-trigger rapi */}
+        {/* Konten Utama */}
         <div 
           key={location.pathname}
           className="page-transition" 

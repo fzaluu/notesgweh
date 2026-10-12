@@ -272,10 +272,23 @@ export default function PencilLoader() {
   }, []);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
-      <div style={{ position: 'relative', width: '150px', height: '150px' }} role="status" aria-label="Memuat">
-        <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        width: '100vw', 
+        height: '100vh', 
+        backgroundColor: '#F4F3EC', // 👈 Warna latar krem
+        backgroundImage: 'radial-gradient(#d1d1cb 1px, transparent 1px)', // 👈 Motif titik-titik
+        backgroundSize: '16px 16px',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: 9999,
+      }}>
+        <div style={{ position: 'relative', width: '150px', height: '150px' }} role="status" aria-label="Memuat">
+          <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
+        </div>
       </div>
-    </div>
-  );
+    );
 }
