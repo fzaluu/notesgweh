@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../../lib/supabase';
+import ModalOverlay from '../../ui/ModalOverlay';
 
 interface AdminBottomNavProps {
   onLogoutClick: () => void;
@@ -12,6 +13,7 @@ export default function AdminBottomNav({ onLogoutClick }: AdminBottomNavProps) {
   
   // State untuk Modal Tambah User
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'admin' | 'user'>('user');
@@ -27,40 +29,38 @@ export default function AdminBottomNav({ onLogoutClick }: AdminBottomNavProps) {
     setErrorMsg(null);
 
     try {
-      // 1. Buat akun auth via Supabase Auth
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
+      // Pembuatan akun dilakukan server-side lewat Edge Function `create-user`
+      // (sama seperti halaman Kelola User), bukan supabase.auth.signUp dari browser
+      // yang akan mengganti sesi admin.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Sesi Anda telah habis. Silakan login kembali.');
+      }
+
+      const { data, error: fnError } = await supabase.functions.invoke('create-user', {
+        body: { name, email, password, role },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
-      if (signUpError) throw signUpError;
+      if (fnError) throw fnError;
+      if (data && data.error) {
+        throw new Error(data.message || 'Gagal membuat pengguna.');
+      }
 
-      if (data.user) {
-        // 2. Masukkan atau update role ke tabel profiles
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert([
-            {
-              id: data.user.id,
-              email: email,
-              role: role,
-            },
-          ]);
+      // Reset form & tutup modal
+      setName('');
+      setEmail('');
+      setPassword('');
+      setRole('user');
+      setIsAddUserModalOpen(false);
 
-        if (profileError) throw profileError;
-
-        // Reset form & tutup modal
-        setEmail('');
-        setPassword('');
-        setRole('user');
-        setIsAddUserModalOpen(false);
-
-        // Refresh halaman jika sedang di halaman manajemen user
-        if (location.pathname === '/admin/users') {
-          window.location.reload();
-        } else {
-          navigate('/admin/users');
-        }
+      // Refresh halaman jika sedang di halaman manajemen user
+      if (location.pathname === '/admin/users') {
+        window.location.reload();
+      } else {
+        navigate('/admin/users');
       }
     } catch (err: any) {
       console.error('Gagal menambah user:', err);
@@ -76,17 +76,7 @@ export default function AdminBottomNav({ onLogoutClick }: AdminBottomNavProps) {
 
       {/* MODAL POP-UP TAMBAH USER BARU */}
       {isAddUserModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          backdropFilter: 'blur(2px)',
-        }}>
+        <ModalOverlay>
           <div style={{
             backgroundColor: '#FFFFFF',
             border: '4px solid #000',
@@ -141,6 +131,28 @@ export default function AdminBottomNav({ onLogoutClick }: AdminBottomNavProps) {
             )}
             
             <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Nama</label>
+                <input
+                  type="text"
+                  placeholder="Nama lengkap"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={60}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    backgroundColor: '#F4F3EC',
+                    border: '3px solid #000',
+                    borderRadius: '10px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Email User</label>
                 <input
@@ -251,7 +263,7 @@ export default function AdminBottomNav({ onLogoutClick }: AdminBottomNavProps) {
               </button>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Bottom Nav Bar Admin dengan Tombol + Langsung Membuka Modal */}

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { supabase } from '../../lib/supabase';
+import { getLocalDateString, getSourceFromAccount } from '../../utils/finance';
+import ModalOverlay from '../ui/ModalOverlay';
 
 interface BottomNavProps {
   onLogoutClick: () => void;
@@ -57,6 +59,12 @@ export default function BottomNav({ onLogoutClick }: BottomNavProps) {
 
     const cleanAmount = parseFloat(amount.replace(/\./g, ''));
 
+    // Database mewajibkan amount > 0
+    if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
+      alert('Nominal harus lebih dari 0.');
+      return;
+    }
+
     try {
       const { error } = await supabase.from('transactions').insert([
         {
@@ -65,8 +73,8 @@ export default function BottomNav({ onLogoutClick }: BottomNavProps) {
           amount: cleanAmount,
           type,
           account,
-          source: account,
-          date: new Date().toISOString().split('T')[0],
+          source: getSourceFromAccount(account),
+          date: getLocalDateString(),
         },
       ]);
 
@@ -280,17 +288,7 @@ export default function BottomNav({ onLogoutClick }: BottomNavProps) {
 
       {/* MODAL POP-UP TAMBAH KEUANGAN */}
       {isFinanceModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          backdropFilter: 'blur(2px)',
-        }}>
+        <ModalOverlay>
           <div style={{
             backgroundColor: '#FFFFFF',
             border: '4px solid #000',
@@ -536,22 +534,12 @@ export default function BottomNav({ onLogoutClick }: BottomNavProps) {
               </button>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* MODAL POP-UP TAMBAH CATATAN & TUGAS */}
       {isNoteModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          backdropFilter: 'blur(2px)',
-        }}>
+        <ModalOverlay>
           <div style={{
             backgroundColor: '#FFFFFF',
             border: '4px solid #000',
@@ -745,7 +733,7 @@ export default function BottomNav({ onLogoutClick }: BottomNavProps) {
               </button>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Bottom Nav Bar */}

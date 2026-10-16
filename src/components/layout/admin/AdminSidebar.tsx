@@ -10,12 +10,20 @@ export default function AdminSidebar({ onLogoutClick }: AdminSidebarProps) {
   const location = useLocation();
   
   const [isMinimized, setIsMinimized] = useState(() => {
-    const saved = localStorage.getItem('admin_sidebar_minimized');
-    return saved ? JSON.parse(saved) : false;
+    try {
+      const saved = localStorage.getItem('admin_sidebar_minimized');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('admin_sidebar_minimized', JSON.stringify(isMinimized));
+    try {
+      localStorage.setItem('admin_sidebar_minimized', JSON.stringify(isMinimized));
+    } catch {
+      /* abaikan: storage tidak tersedia */
+    }
   }, [isMinimized]);
 
   const menuItems = [

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../../lib/supabase';
 import type { Profile } from '../../types'; 
@@ -20,6 +20,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Menyimpan id user yang profilnya sudah selesai dimuat / sedang dimuat,
+  // supaya event auth berulang (INITIAL_SESSION, TOKEN_REFRESHED) tidak fetch ulang
+  const loadedUserIdRef = useRef<string | null>(null);
+  const inFlightUserIdRef = useRef<string | null>(null);
+
   const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -30,48 +35,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         console.error('Error fetching profile:', error.message);
+        setProfile(null);
       } else {
         setProfile(data);
       }
     } catch (err) {
       console.error('Unexpected error fetching profile:', err);
+      setProfile(null);
     }
   };
 
   useEffect(() => {
     let mounted = true;
 
+    // Satu pintu untuk semua perubahan sesi: session + profile selalu
+    // di-set bersamaan sebelum `loading` dimatikan, sehingga route guard
+    // tidak pernah melihat kondisi "ada session tapi profile belum ada".
+    const applySession = async (newSession: Session | null) => {
+      if (!mounted) return;
+
+      if (!newSession?.user) {
+        loadedUserIdRef.current = null;
+        inFlightUserIdRef.current = null;
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      const userId = newSession.user.id;
+
+      // Token refresh / event ganda untuk user yang sama: cukup perbarui session
+      if (loadedUserIdRef.current === userId) {
+        setSession(newSession);
+        setUser(newSession.user);
+        setLoading(false);
+        return;
+      }
+
+      // Profil user ini sedang dimuat oleh pemanggilan lain
+      if (inFlightUserIdRef.current === userId) return;
+
+      inFlightUserIdRef.current = userId;
+      setLoading(true);
+      setSession(newSession);
+      setUser(newSession.user);
+
+      await fetchProfile(userId);
+
+      if (!mounted) return;
+      loadedUserIdRef.current = userId;
+      inFlightUserIdRef.current = null;
+      setLoading(false);
+    };
+
     async function initAuth() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!mounted) return;
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-        }
+        await applySession(session);
       } catch (err) {
         console.error('Auth initialization error:', err);
-      } finally {
         if (mounted) setLoading(false);
       }
     }
 
     initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
+    // Jangan `await` panggilan Supabase langsung di dalam callback ini
+    // (bisa deadlock di supabase-js), jadi ditunda dengan setTimeout.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setTimeout(() => {
+        applySession(newSession);
+      }, 0);
     });
 
     return () => {
@@ -81,10 +117,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-    setProfile(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error('Error signing out:', error.message);
+    } catch (err) {
+      console.error('Unexpected error signing out:', err);
+    } finally {
+      loadedUserIdRef.current = null;
+      inFlightUserIdRef.current = null;
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+    }
   };
 
   if (loading) {

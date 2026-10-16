@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../app/providers/AuthProvider';
 import AppLayout from '../../components/layout/AppLayout';
+import { getLocalDateString, getSourceFromAccount } from '../../utils/finance';
+import ModalOverlay from '../../components/ui/ModalOverlay';
 
 interface Transaction {
   id: string;
@@ -12,6 +14,40 @@ interface Transaction {
   source: string;
   date: string;
 }
+
+// Custom Hook untuk Animasi Counter Angka dari 0 ke Nilai Asli
+// (didefinisikan di luar komponen + membatalkan animasi saat unmount / nilai berubah)
+const useAnimatedCounter = (endValue: number, duration: number = 800) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (endValue === 0) {
+      setCount(0);
+      return;
+    }
+
+    let startTime: number | null = null;
+    let frameId = 0;
+    const step = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+
+      const easeOutProgress = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.floor(easeOutProgress * endValue));
+
+      if (progress < 1) {
+        frameId = requestAnimationFrame(step);
+      } else {
+        setCount(endValue);
+      }
+    };
+
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, [endValue, duration]);
+
+  return count;
+};
 
 export default function FinancePage() {
   const { user } = useAuth();
@@ -47,7 +83,10 @@ export default function FinancePage() {
 
   // Fetch Data Transaksi dari Supabase
   const fetchTransactions = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from('transactions')
@@ -87,6 +126,12 @@ export default function FinancePage() {
     // Bersihkan titik (.) sebelum dikirim ke database
     const cleanAmount = parseFloat(amount.replace(/\./g, ''));
 
+    // Database mewajibkan amount > 0
+    if (!Number.isFinite(cleanAmount) || cleanAmount <= 0) {
+      alert('Nominal harus lebih dari 0.');
+      return;
+    }
+
     try {
       if (editingId) {
         // Proses Update
@@ -97,9 +142,10 @@ export default function FinancePage() {
             amount: cleanAmount,
             type,
             account,
-            source: account,
+            source: getSourceFromAccount(account),
           })
-          .eq('id', editingId);
+          .eq('id', editingId)
+          .eq('user_id', user.id);
 
         if (error) throw error;
         setEditingId(null);
@@ -112,8 +158,8 @@ export default function FinancePage() {
             amount: cleanAmount,
             type,
             account,
-            source: account,
-            date: new Date().toISOString().split('T')[0],
+            source: getSourceFromAccount(account),
+            date: getLocalDateString(),
           },
         ]);
 
@@ -161,7 +207,11 @@ export default function FinancePage() {
   const handleDeleteConfirmed = async () => {
     if (!transactionToDelete) return;
     try {
-      const { error } = await supabase.from('transactions').delete().eq('id', transactionToDelete);
+      const { error } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', transactionToDelete)
+        .eq('user_id', user?.id ?? '');
       if (error) throw error;
       setTransactions(transactions.filter((tx) => tx.id !== transactionToDelete));
     } catch (err) {
@@ -186,6 +236,13 @@ export default function FinancePage() {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentTransactions = filteredTransactions.slice(indexOfFirstItem, indexOfLastItem);
 
+  // Jika halaman aktif melebihi total halaman (mis. setelah hapus data), mundur ke halaman terakhir
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
   // Hitung Ringkasan Saldo, Pemasukan, Pengeluaran (berdasarkan keseluruhan data transaksi)
   const totalIncome = transactions
     .filter((tx) => tx.type === 'income')
@@ -196,37 +253,6 @@ export default function FinancePage() {
     .reduce((acc, curr) => acc + Number(curr.amount), 0);
 
   const balance = totalIncome - totalExpense;
-
-  // Custom Hook / Fungsi untuk Animasi Counter Angka dari 0 ke Nilai Asli
-  const useAnimatedCounter = (endValue: number, duration: number = 800) => {
-    const [count, setCount] = useState(0);
-
-    useEffect(() => {
-      if (endValue === 0) {
-        setCount(0);
-        return;
-      }
-
-      let startTime: number | null = null;
-      const step = (timestamp: number) => {
-        if (!startTime) startTime = timestamp;
-        const progress = Math.min((timestamp - startTime) / duration, 1);
-        
-        const easeOutProgress = 1 - Math.pow(1 - progress, 3);
-        setCount(Math.floor(easeOutProgress * endValue));
-
-        if (progress < 1) {
-          requestAnimationFrame(step);
-        } else {
-          setCount(endValue);
-        }
-      };
-
-      requestAnimationFrame(step);
-    }, [endValue, duration]);
-
-    return count;
-  };
 
   const animatedBalance = useAnimatedCounter(balance);
   const animatedIncome = useAnimatedCounter(totalIncome);
@@ -787,17 +813,7 @@ export default function FinancePage() {
 
       {/* MODAL KONFIRMASI HAPUS (NEO-BRUTALISM) */}
       {deleteModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          backdropFilter: 'blur(2px)',
-        }}>
+        <ModalOverlay>
           <div style={{
             backgroundColor: '#FFFFFF',
             border: '4px solid #000',
@@ -871,7 +887,7 @@ export default function FinancePage() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </AppLayout>
   );

@@ -11,6 +11,12 @@ interface ActivityLog {
   created_at: string;
 }
 
+// Warna badge aktivitas: akun baru / pendaftaran = kuning, lainnya = biru
+const getActivityColor = (activity: string) => {
+  const t = (activity || '').toLowerCase();
+  return t.includes('akun baru') || t.includes('daftar') ? '#FFDE59' : '#00F0FF';
+};
+
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,9 +53,9 @@ export default function ActivityLogsPage() {
     } finally {
       setLoading(false);
     }
-  };  
+  };
 
-  // Filter berdasarkan aktivitas atau email
+  // Filter berdasarkan aktivitas, email, atau status
   const filteredLogs = logs.filter((log) => {
     const query = searchQuery.toLowerCase();
     const activity = (log.activity || '').toLowerCase();
@@ -63,6 +69,13 @@ export default function ActivityLogsPage() {
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentLogs = filteredLogs.slice(indexOfFirstItem, indexOfLastItem);
+
+  // Jika halaman aktif melebihi total halaman, mundur ke halaman terakhir
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   const formatDateTime = (dateString?: string) => {
     if (!dateString) return '-';
@@ -82,7 +95,7 @@ export default function ActivityLogsPage() {
   return (
     <AdminLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', width: '100%' }}>
-        
+
         {/* HEADER */}
         <div style={{
           backgroundColor: '#FFFFFF',
@@ -115,6 +128,25 @@ export default function ActivityLogsPage() {
               Log Aktivitas
             </h1>
           </div>
+
+          <button
+            type="button"
+            onClick={fetchLogs}
+            disabled={loading}
+            style={{
+              padding: '8px 14px',
+              backgroundColor: loading ? '#E0E0E0' : '#FFDE59',
+              border: '3px solid #000',
+              borderRadius: '10px',
+              fontWeight: 900,
+              fontSize: '12px',
+              textTransform: 'uppercase',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: loading ? 'none' : '3px 3px 0px 0px rgba(0,0,0,1)',
+            }}
+          >
+            {loading ? 'Memuat...' : 'Muat Ulang'}
+          </button>
         </div>
 
         {/* FEEDBACK ERROR */}
@@ -240,9 +272,9 @@ export default function ActivityLogsPage() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{
-                          backgroundColor: '#00F0FF',
+                          backgroundColor: getActivityColor(log.activity),
                           border: '2px solid #000',
                           borderRadius: '6px',
                           padding: '2px 8px',

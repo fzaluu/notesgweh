@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../app/providers/AuthProvider';
 import AppLayout from '../../components/layout/AppLayout';
+import ModalOverlay from '../../components/ui/ModalOverlay';
 
 interface Note {
   id: string;
@@ -40,7 +41,10 @@ export default function NotesPage() {
 
   // Fetch Data Catatan dari Supabase
   const fetchNotes = async () => {
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from('notes')
@@ -87,7 +91,8 @@ export default function NotesPage() {
         const { error } = await supabase
           .from('notes')
           .update(payload)
-          .eq('id', editingId);
+          .eq('id', editingId)
+          .eq('user_id', user.id);
 
         if (error) throw error;
         setEditingId(null);
@@ -158,7 +163,11 @@ export default function NotesPage() {
   const handleDeleteConfirmed = async () => {
     if (!noteToDelete) return;
     try {
-      const { error } = await supabase.from('notes').delete().eq('id', noteToDelete);
+      const { error } = await supabase
+        .from('notes')
+        .delete()
+        .eq('id', noteToDelete)
+        .eq('user_id', user?.id ?? '');
       if (error) throw error;
       setNotes(notes.filter((note) => note.id !== noteToDelete));
     } catch (err) {
@@ -182,6 +191,13 @@ export default function NotesPage() {
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentNotes = filteredNotes.slice(indexOfFirstItem, indexOfLastItem);
+
+  // Jika halaman aktif melebihi total halaman (mis. setelah hapus data), mundur ke halaman terakhir
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   return (
     <AppLayout>
@@ -679,17 +695,7 @@ export default function NotesPage() {
 
       {/* MODAL KONFIRMASI HAPUS ENTRI */}
       {deleteModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '16px',
-          backdropFilter: 'blur(2px)',
-        }}>
+        <ModalOverlay>
           <div style={{
             backgroundColor: '#FFFFFF',
             border: '4px solid #000',
@@ -763,7 +769,7 @@ export default function NotesPage() {
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </AppLayout>
   );

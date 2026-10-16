@@ -12,13 +12,21 @@ export default function Sidebar({ onLogoutClick }: SidebarProps) {
   
   // Mengambil status minimize terakhir dari localStorage agar tidak reset saat pindah halaman
   const [isMinimized, setIsMinimized] = useState(() => {
-    const saved = localStorage.getItem('sidebar_minimized');
-    return saved ? JSON.parse(saved) : false;
+    try {
+      const saved = localStorage.getItem('sidebar_minimized');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
   });
 
   // Menyimpan perubahan state minimize ke localStorage
   useEffect(() => {
-    localStorage.setItem('sidebar_minimized', JSON.stringify(isMinimized));
+    try {
+      localStorage.setItem('sidebar_minimized', JSON.stringify(isMinimized));
+    } catch {
+      /* abaikan: storage tidak tersedia */
+    }
   }, [isMinimized]);
 
   // Hapus fungsi lokal signOut di sini karena sudah ditangani oleh AppLayout via onLogoutClick

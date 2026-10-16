@@ -1,7 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import AdminLayout from '../../components/layout/admin/AdminLayout';
+
+// Counter angka: menghitung naik dari 0 ke nilai asli saat data selesai dimuat
+function AnimatedNumber({ value, active, duration = 1000 }: { value: number; active: boolean; duration?: number }) {
+  const [display, setDisplay] = useState(0);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+
+    if (!active) {
+      setDisplay(0);
+      return;
+    }
+
+    let reduceMotion = false;
+    try {
+      reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      reduceMotion = false;
+    }
+
+    if (reduceMotion || value <= 0) {
+      setDisplay(value);
+      return;
+    }
+
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+      setDisplay(Math.round(value * eased));
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(tick);
+      }
+    };
+    frameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    };
+  }, [value, active, duration]);
+
+  return <>{display}</>;
+}
 
 interface AdminStats {
   totalUsers: number;
@@ -58,7 +102,10 @@ export default function AdminDashboard() {
       // Mengambil data log menggunakan RPC get_activity_logs agar konsisten dan aman dari RLS 403
       const { data: logs, error: logsError } = await supabase.rpc('get_activity_logs');
 
-      if (!logsError && logs) {
+      if (logsError) {
+        console.error('Gagal memuat log aktivitas:', logsError);
+        setErrorMsg('Statistik login dan aktivitas terbaru gagal dimuat. Pastikan sesi admin aktif.');
+      } else if (logs) {
         successCount = logs.filter((l: any) => l.status?.toLowerCase() === 'success').length;
         failedCount = logs.filter((l: any) => l.status?.toLowerCase() === 'failed').length;
         
@@ -104,7 +151,16 @@ export default function AdminDashboard() {
   return (
     <AdminLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', width: '100%' }}>
-        
+
+        {/* CSS SKELETON PULSE ANIMATION */}
+        <style>{`
+          @keyframes pulseSkeleton {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+          }
+        `}</style>
+
         {/* 1. HEADER */}
         <div style={{
           backgroundColor: '#FFFFFF',
@@ -205,7 +261,7 @@ export default function AdminDashboard() {
                 Total User
               </span>
               <span style={{ fontSize: '32px', fontWeight: 900 }}>
-                {loading ? '...' : stats.totalUsers}
+                <AnimatedNumber value={stats.totalUsers} active={!loading} />
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
                 Jumlah seluruh akun terdaftar
@@ -227,7 +283,7 @@ export default function AdminDashboard() {
                 User Aktif
               </span>
               <span style={{ fontSize: '32px', fontWeight: 900 }}>
-                {loading ? '...' : stats.activeUsers}
+                <AnimatedNumber value={stats.activeUsers} active={!loading} />
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
                 Jumlah akun aktif dalam sistem
@@ -249,7 +305,7 @@ export default function AdminDashboard() {
                 Total Admin
               </span>
               <span style={{ fontSize: '32px', fontWeight: 900 }}>
-                {loading ? '...' : stats.totalAdmins}
+                <AnimatedNumber value={stats.totalAdmins} active={!loading} />
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
                 Jumlah akun berhak akses admin
@@ -283,7 +339,7 @@ export default function AdminDashboard() {
                 Login Berhasil
               </span>
               <span style={{ fontSize: '32px', fontWeight: 900 }}>
-                {loading ? '...' : stats.loginSuccess}
+                <AnimatedNumber value={stats.loginSuccess} active={!loading} />
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.8 }}>
                 Akumulasi login sukses
@@ -306,7 +362,7 @@ export default function AdminDashboard() {
                 Login Gagal
               </span>
               <span style={{ fontSize: '32px', fontWeight: 900 }}>
-                {loading ? '...' : stats.loginFailed}
+                <AnimatedNumber value={stats.loginFailed} active={!loading} />
               </span>
               <span style={{ fontSize: '11px', fontWeight: 700, opacity: 0.9 }}>
                 Akumulasi percobaan login gagal
@@ -347,7 +403,31 @@ export default function AdminDashboard() {
           </div>
 
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '20px', fontWeight: 800 }}>Memuat aktivitas...</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[1, 2, 3, 4, 5].map((item) => (
+                <div
+                  key={item}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 16px',
+                    backgroundColor: '#EAE8DF',
+                    border: '2px solid #000',
+                    borderRadius: '10px',
+                    flexWrap: 'wrap',
+                    gap: '8px',
+                    animation: 'pulseSkeleton 1.2s infinite ease-in-out',
+                  }}
+                >
+                  <div style={{ width: '160px', maxWidth: '45%', height: '16px', backgroundColor: '#D5D2C4', borderRadius: '4px' }}></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '90px', height: '22px', backgroundColor: '#D5D2C4', borderRadius: '6px', border: '2px solid #000' }}></div>
+                    <div style={{ width: '110px', height: '12px', backgroundColor: '#D5D2C4', borderRadius: '4px' }}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : recentActivities.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px', fontWeight: 700, color: '#666' }}>
               Belum ada aktivitas terbaru.

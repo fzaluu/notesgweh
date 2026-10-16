@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import AdminLayout from '../../components/layout/admin/AdminLayout';
+import ModalOverlay from '../../components/ui/ModalOverlay';
 
 interface UserProfile {
   id: string;
@@ -57,6 +58,25 @@ export default function UsersPage() {
     }
   };
 
+  // Helper: catat aktivitas ke Log Aktivitas (tidak boleh menggagalkan proses utama)
+  const logActivity = async (
+    activity: string,
+    email: string | null,
+    status: 'success' | 'failed',
+    userId: string | null
+  ) => {
+    try {
+      await supabase.rpc('insert_activity_log', {
+        p_activity: activity,
+        p_email: email,
+        p_status: status,
+        p_user_id: userId,
+      });
+    } catch (err) {
+      console.error('Gagal mencatat log aktivitas:', err);
+    }
+  };
+
   // CREATE / UPDATE User Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +100,10 @@ export default function UsersPage() {
         setSuccessMsg('Data pengguna berhasil diperbarui.');
       } else {
         // Mode Tambah Baru via Edge Function
-        if (!newEmail || !newPassword) return;
+        if (!newEmail || !newPassword) {
+          setErrorMsg('Email dan password wajib diisi.');
+          return;
+        }
 
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
@@ -104,6 +127,9 @@ export default function UsersPage() {
         if (data && data.error) {
           throw new Error(data.message || 'Gagal membuat pengguna.');
         }
+
+        // Catat ke Log Aktivitas: akun baru dibuat oleh admin
+        await logActivity('Akun baru dibuat oleh admin', newEmail, 'success', session.user.id);
 
         setSuccessMsg('Pengguna berhasil dibuat.');
       }
@@ -142,12 +168,24 @@ export default function UsersPage() {
     if (!userToDelete) return;
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userToDelete.id);
+      // Hapus akun penuh (auth.users) lewat Edge Function `delete-user`.
+      // Profil, transaksi, dan catatan ikut terhapus (CASCADE).
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Sesi Anda telah habis. Silakan login kembali.');
+      }
+
+      const { data, error } = await supabase.functions.invoke('delete-user', {
+        body: { user_id: userToDelete.id },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
       if (error) throw error;
+      if (data && data.error) {
+        throw new Error(data.message || 'Gagal menghapus pengguna.');
+      }
 
       setSuccessMsg('Pengguna berhasil dihapus dari sistem.');
       setIsDeleteOpen(false);
@@ -159,8 +197,8 @@ export default function UsersPage() {
   };
 
   // Filter berdasarkan Nama
-  const filteredUsers = users.filter((u) => 
-    u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredUsers = users.filter((u) =>
+    (u.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Perhitungan Pagination
@@ -168,6 +206,13 @@ export default function UsersPage() {
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentUsers = filteredUsers.slice(indexOfFirstItem, indexOfLastItem);
+
+  // Jika halaman aktif melebihi total halaman (mis. setelah hapus data), mundur ke halaman terakhir
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '-';
@@ -185,7 +230,7 @@ export default function UsersPage() {
   return (
     <AdminLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', width: '100%' }}>
-        
+
         {/* HEADER */}
         <div style={{
           backgroundColor: '#FFFFFF',
@@ -265,7 +310,7 @@ export default function UsersPage() {
 
         {/* LAYOUT UTAMA: KIRI (FORM), KANAN (LIST USER) */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
-          
+
           {/* KOLOM KIRI: FORM TAMBAH / EDIT PENGGUNA */}
           <div style={{
             backgroundColor: '#FFFFFF',
@@ -617,10 +662,7 @@ export default function UsersPage() {
 
         {/* MODAL DELETE CONFIRMATION */}
         {isDeleteOpen && userToDelete && (
-          <div style={{
-            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', backdropFilter: 'blur(2px)'
-          }}>
+          <ModalOverlay>
             <div style={{
               backgroundColor: '#FFFFFF', border: '4px solid #000', borderRadius: '20px',
               padding: '24px', boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)', width: '100%', maxWidth: '360px', textAlign: 'center'
@@ -629,14 +671,14 @@ export default function UsersPage() {
                 Hapus Pengguna?
               </h3>
               <p style={{ fontSize: '13px', fontWeight: 700, color: '#555', margin: '0 0 16px 0' }}>
-                Apakah kamu yakin ingin menghapus profil <br/><strong style={{ color: '#000' }}>{userToDelete.name || 'Tanpa Nama'}</strong>?
+                Apakah kamu yakin ingin menghapus profil <br /><strong style={{ color: '#000' }}>{userToDelete.name || 'Tanpa Nama'}</strong>?
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <button type="button" onClick={() => setIsDeleteOpen(false)} style={{ padding: '12px', backgroundColor: '#E0E0E0', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>Batal</button>
                 <button type="button" onClick={handleDeleteUser} style={{ padding: '12px', backgroundColor: '#FF5757', color: '#FFF', border: '3px solid #000', borderRadius: '10px', fontWeight: 900, cursor: 'pointer', boxShadow: '3px 3px 0px 0px rgba(0,0,0,1)' }}>Hapus</button>
               </div>
             </div>
-          </div>
+          </ModalOverlay>
         )}
 
       </div>

@@ -1,124 +1,96 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Edge Function: create-user  (menggantikan versi lama)
+// Admin membuat akun baru. Kontrak sama dengan yang dipakai UsersPage:
+//   body: { name, email, password, role }
+//   sukses -> { success: true, user_id }
+//   gagal  -> { error: true, message }
+//
+// Deploy: Verify JWT boleh ON atau OFF (fungsi memverifikasi sendiri).
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+const fail = (message: string) => json({ error: true, message });
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return json({ error: true, message: 'Method tidak diizinkan.' }, 405);
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "UNAUTHORIZED", message: "Token otorisasi tidak ditemukan." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-
-    // Inisialisasi Supabase Client untuk memvalidasi token user
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    // Verifikasi user dari token JWT yang dikirim frontend
-    const { data: { user: callerUser }, error: userError } = await supabaseClient.auth.getUser(token);
-    
-    if (userError || !callerUser) {
-      return new Response(
-        JSON.stringify({ error: "UNAUTHORIZED", message: "Sesi tidak valid atau kedaluwarsa." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Inisialisasi Admin Client untuk mengecek database profiles secara aman
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
-
-    // Periksa role user di tabel profiles menggunakan Admin Client (menghindari RLS block)
-    const { data: profileData, error: profileError } = await supabaseAdmin
-      .from("profiles")
-      .select("role")
-      .eq("id", callerUser.id)
-      .single();
-
-    if (profileError || !profileData || profileData.role !== "admin") {
-      return new Response(
-        JSON.stringify({ error: "FORBIDDEN", message: "Anda tidak memiliki izin admin." }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Ambil payload dari request body
-    const { name, email, password, role } = await req.json();
-
-    if (!name || !email || !password) {
-      return new Response(
-        JSON.stringify({ error: "BAD_REQUEST", message: "Data tidak lengkap." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Buat user baru menggunakan Supabase Admin API
-    const { data: createdAuth, error: createError } = await supabaseAdmin.auth.admin.createUser({
-      email: normalizedEmail,
-      password: password,
-      email_confirm: true,
-      user_metadata: { name, role: role || "user" },
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    if (createError) {
-      if (createError.message.toLowerCase().includes("already registered")) {
-        return new Response(
-          JSON.stringify({ error: "CONFLICT", message: "Email tersebut sudah digunakan." }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+    // ---- Verifikasi pemanggil: harus admin ----
+    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+    if (!token) return fail('Sesi tidak valid. Silakan login kembali.');
+
+    const { data: caller, error: callerErr } = await admin.auth.getUser(token);
+    if (callerErr || !caller?.user) return fail('Sesi tidak valid. Silakan login kembali.');
+
+    const { data: callerProfile } = await admin
+      .from('profiles')
+      .select('role')
+      .eq('id', caller.user.id)
+      .maybeSingle();
+    if (callerProfile?.role !== 'admin') return fail('Kamu tidak memiliki akses untuk aksi ini.');
+
+    // ---- Validasi input ----
+    const body = await req.json().catch(() => ({}));
+    const email = String(body?.email ?? '').trim().toLowerCase();
+    const password = String(body?.password ?? '');
+    const role = body?.role === 'admin' ? 'admin' : 'user';
+    const name =
+      String(body?.name ?? '').trim() || email.split('@')[0] || 'New User';
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Format email tidak valid.');
+    if (password.length < 6) return fail('Password minimal 6 karakter.');
+
+    // ---- Buat akun auth ----
+    // role disimpan di app_metadata (hanya bisa diisi server-side)
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name },
+      app_metadata: { role },
+    });
+
+    if (createErr || !created?.user) {
+      const code = (createErr as { code?: string } | null)?.code;
+      const msg = createErr?.message ?? '';
+      if (code === 'email_exists' || /already|registered|exists/i.test(msg)) {
+        return fail('Email sudah digunakan.');
       }
-      return new Response(
-        JSON.stringify({ error: "BAD_REQUEST", message: createError.message }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.error('createUser error:', createErr);
+      return fail('Gagal membuat pengguna.');
     }
 
-    if (createdAuth && createdAuth.user) {
-      const { error: upsertError } = await supabaseAdmin
-        .from("profiles")
-        .upsert([
-          {
-            id: createdAuth.user.id,
-            name: name.trim(),
-            role: role || "user",
-            updated_at: new Date().toISOString(),
-          }
-        ]);
-
-      if (upsertError) {
-        await supabaseAdmin.auth.admin.deleteUser(createdAuth.user.id);
-        throw upsertError;
-      }
+    // ---- Pastikan profil sesuai (trigger handle_new_user sudah membuatnya) ----
+    const { error: profileErr } = await admin
+      .from('profiles')
+      .upsert({ id: created.user.id, name, role }, { onConflict: 'id' });
+    if (profileErr) {
+      // Rollback: hapus akun auth agar tidak ada akun tanpa profil
+      console.error('profile upsert error:', profileErr);
+      await admin.auth.admin.deleteUser(created.user.id);
+      return fail('Gagal menyimpan profil pengguna. Silakan coba lagi.');
     }
 
-    return new Response(
-      JSON.stringify({ success: true, message: "Pengguna berhasil dibuat." }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: "SERVER_ERROR", message: err.message || "Terjadi kesalahan server." }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ success: true, user_id: created.user.id });
+  } catch (err) {
+    console.error('create-user error:', err);
+    return json({ error: true, message: 'Terjadi kesalahan pada server.' }, 500);
   }
 });

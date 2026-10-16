@@ -4,6 +4,7 @@ import { useAuth } from '../../app/providers/AuthProvider';
 import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 import PencilLoader from '../../components/ui/PencilLoader'; // 👈 Impor komponen loader pensil
+import ModalOverlay from '../ui/ModalOverlay';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -133,17 +134,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
         {/* MODAL KONFIRMASI KELUAR */}
         {logoutModalOpen && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px',
-            backdropFilter: 'blur(2px)',
-          }}>
+          <ModalOverlay>
             <div style={{
               backgroundColor: '#FFFFFF',
               border: '4px solid #000',
@@ -218,7 +209,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </button>
               </div>
             </div>
-          </div>
+          </ModalOverlay>
         )}
       </div>
     </LayoutContext.Provider>
